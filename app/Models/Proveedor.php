@@ -8,7 +8,9 @@ class Proveedor extends Model
 {
     protected $table = 'proveedores';
 
-    protected $fillable = ['tenant_id', 'nombre', 'ruc', 'telefono', 'email', 'contacto', 'activo'];
+    protected $fillable = ['tenant_id', 'nombre', 'ruc', 'telefono', 'email', 'contacto', 'categoria', 'activo'];
+
+    public $timestamps = false;
 
     protected $casts = ['activo' => 'boolean'];
 

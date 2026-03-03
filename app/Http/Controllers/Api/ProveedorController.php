@@ -53,6 +53,7 @@ class ProveedorController extends Controller
 
         $validated = $request->validate([
             'nombre'   => 'required|string|max:150',
+            'categoria' => 'nullable|string|max:80',
             'ruc'      => 'nullable|string|max:30',
             'telefono' => 'nullable|string|max:30',
             'email'    => 'nullable|email|max:150',
@@ -94,6 +95,7 @@ class ProveedorController extends Controller
 
         $validated = $request->validate([
             'nombre'   => 'sometimes|string|max:150',
+            'categoria' => 'nullable|string|max:80',
             'ruc'      => 'nullable|string|max:30',
             'telefono' => 'nullable|string|max:30',
             'email'    => 'nullable|email|max:150',

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AreaCatalogo;
 use App\Models\AreaComun;
 use App\Models\HorarioArea;
 use App\Models\PropietarioUnidad;
@@ -12,14 +13,14 @@ use Illuminate\Support\Carbon;
 
 class ReservaController extends Controller
 {
-    // ── GET /api/v1/reservas ─────────────────────────────────────────────────────
+    // â”€â”€ GET /api/v1/reservas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Params: area_id, estado, fecha_desde, fecha_hasta, page
     public function index(Request $request)
     {
         $tenantId = $request->get('tenant_id');
 
         $query = Reserva::with([
-                'area:id,nombre',
+                'area:id,nombre,catalogo_id',
                 'unidad:id,numero',
             ])
             ->where('reservas.tenant_id', $tenantId);
@@ -55,12 +56,14 @@ class ReservaController extends Controller
 
             return [
                 'id'           => $r->id,
+                'area_id'      => $r->area_id,
                 'area'         => $r->area?->nombre,
                 'unidad'       => $r->unidad?->numero,
                 'propietario'  => $prop ? trim("{$prop->nombre} {$prop->apellido}") : null,
-                'fecha'        => $r->fecha,
+                'fecha'        => \Carbon\Carbon::parse($r->fecha)->toDateString(),
                 'hora_inicio'  => $r->hora_inicio,
                 'hora_fin'     => $r->hora_fin,
+                'num_personas' => $r->num_personas,
                 'estado'       => $r->estado,
                 'notas'        => $r->notas,
             ];
@@ -77,7 +80,7 @@ class ReservaController extends Controller
         ]);
     }
 
-    // ── POST /api/v1/reservas ────────────────────────────────────────────────────
+    // â”€â”€ POST /api/v1/reservas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Body: { area_id, unidad_id, fecha_reserva, hora_inicio, hora_fin }
     public function store(Request $request)
     {
@@ -89,17 +92,18 @@ class ReservaController extends Controller
             'fecha_reserva' => 'required|date|after_or_equal:today',
             'hora_inicio'   => 'required|date_format:H:i',
             'hora_fin'      => 'required|date_format:H:i|after:hora_inicio',
+            'num_personas'  => 'nullable|integer|min:1',
             'notas'         => 'nullable|string',
         ]);
 
-        // 1. Verificar que el área pertenezca al tenant y esté activa
+        // 1. Verificar que el area pertenezca al tenant y este activa
         $area = AreaComun::where('id', $validated['area_id'])
             ->where('tenant_id', $tenantId)
             ->where('activa', true)
             ->first();
 
         if (!$area) {
-            return response()->json(['message' => 'Área común no encontrada o inactiva.'], 422);
+            return response()->json(['message' => 'Ãrea comÃºn no encontrada o inactiva.'], 422);
         }
 
         // 2. Verificar unidad pertenece al tenant
@@ -113,27 +117,27 @@ class ReservaController extends Controller
             }
         }
 
-        // 3. Verificar que la fecha/hora esté dentro del horario del área para ese día de semana
-        $diaSemana = Carbon::parse($validated['fecha_reserva'])->dayOfWeek; // 0=Dom ... 6=Sáb
+        // 3. Verificar que la fecha/hora estÃ© dentro del horario del Ã¡rea para ese dÃ­a de semana
+        $diaSemana = Carbon::parse($validated['fecha_reserva'])->dayOfWeek; // 0=Dom ... 6=SÃ¡b
         $horarioDelDia = HorarioArea::where('area_id', $area->id)
             ->where('dia_semana', $diaSemana)
             ->first();
 
         if (!$horarioDelDia) {
             return response()->json([
-                'message' => 'El área no tiene horario disponible para ese día de la semana.',
+                'message' => 'El Ã¡rea no tiene horario disponible para ese dÃ­a de la semana.',
             ], 422);
         }
 
         if ($validated['hora_inicio'] < $horarioDelDia->hora_inicio ||
             $validated['hora_fin']    > $horarioDelDia->hora_fin) {
             return response()->json([
-                'message' => "El horario solicitado está fuera del rango permitido "
-                           . "({$horarioDelDia->hora_inicio} – {$horarioDelDia->hora_fin}).",
+                'message' => "El horario solicitado estÃ¡ fuera del rango permitido "
+                           . "({$horarioDelDia->hora_inicio} â€“ {$horarioDelDia->hora_fin}).",
             ], 422);
         }
 
-        // 4. Verificar solapamiento con reservas activas en ese área y fecha
+        // 4. Verificar solapamiento con reservas activas en ese Ã¡rea y fecha
         $solapada = Reserva::where('area_id', $area->id)
             ->whereDate('fecha', $validated['fecha_reserva'])
             ->whereNotIn('estado', ['rechazada', 'cancelada'])
@@ -147,29 +151,30 @@ class ReservaController extends Controller
             ->exists();
 
         if ($solapada) {
-            return response()->json(['message' => 'El horario ya está ocupado por otra reserva.'], 422);
+            return response()->json(['message' => 'El horario ya estÃ¡ ocupado por otra reserva.'], 422);
         }
 
         // 5. Crear reserva
         $reserva = Reserva::create([
-            'tenant_id'   => $tenantId,
-            'area_id'     => $area->id,
-            'unidad_id'   => $validated['unidad_id'] ?? null,
-            'residente_id'=> null,
-            'fecha'       => $validated['fecha_reserva'],
-            'hora_inicio' => $validated['hora_inicio'],
-            'hora_fin'    => $validated['hora_fin'],
-            'estado'      => 'pendiente',
-            'notas'       => $validated['notas'] ?? null,
+            'tenant_id'    => $tenantId,
+            'area_id'      => $area->id,
+            'unidad_id'    => $validated['unidad_id'] ?? null,
+            'residente_id' => null,
+            'fecha'        => $validated['fecha_reserva'],
+            'hora_inicio'  => $validated['hora_inicio'],
+            'hora_fin'     => $validated['hora_fin'],
+            'num_personas' => $validated['num_personas'] ?? null,
+            'estado'       => 'pendiente',
+            'notas'        => $validated['notas'] ?? null,
         ]);
 
         return response()->json([
             'data'    => $reserva->load(['area:id,nombre,capacidad', 'unidad:id,numero']),
-            'message' => 'Reserva creada. Pendiente de aprobación.',
+            'message' => 'Reserva creada. Pendiente de aprobaciÃ³n.',
         ], 201);
     }
 
-    // ── GET /api/v1/reservas/:id ──────────────────────────────────────────────────
+    // â”€â”€ GET /api/v1/reservas/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     public function show(Request $request, string $id)
     {
         $tenantId = $request->get('tenant_id');
@@ -219,7 +224,7 @@ class ReservaController extends Controller
         return response()->json(['message' => 'Reserva cancelada.']);
     }
 
-    // ── POST /api/v1/reservas/:id/aprobar ────────────────────────────────────────
+    // â”€â”€ POST /api/v1/reservas/:id/aprobar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     public function aprobar(Request $request, string $id)
     {
         $tenantId = $request->get('tenant_id');
@@ -235,7 +240,7 @@ class ReservaController extends Controller
         ]);
     }
 
-    // ── POST /api/v1/reservas/:id/rechazar ──────────────────────────────────────
+    // â”€â”€ POST /api/v1/reservas/:id/rechazar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Body: { motivo }
     public function rechazar(Request $request, string $id)
     {
@@ -259,8 +264,18 @@ class ReservaController extends Controller
         ]);
     }
 
-    // ── GET /api/v1/areas-comunes ───────────────────────────────────────────────────
-    // Lista áreas activas con sus horarios por día de semana
+    // â”€â”€ GET /api/v1/areas-comunes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Lista Ã¡reas activas con sus horarios por dÃ­a de semana
+    // -- GET /api/v1/areas-catalogo -----------------------------------------------
+    // Catalogo global de tipos de areas comunes (sin tenant)
+    public function catalogoIndex()
+    {
+        $catalogo = AreaCatalogo::orderBy('id')->get();
+        return response()->json(['data' => $catalogo]);
+    }
+
+    // -- GET /api/v1/areas-comunes ------------------------------------------------
+    // Lista areas activas con sus horarios por dia de semana
     public function areas(Request $request)
     {
         $tenantId = $request->get('tenant_id');
@@ -268,12 +283,18 @@ class ReservaController extends Controller
         $areas = AreaComun::with(['horarios' => fn ($q) => $q->orderBy('dia_semana')])
             ->where('tenant_id', $tenantId)
             ->orderBy('nombre')
-            ->get(['id', 'nombre', 'descripcion', 'capacidad', 'costo', 'requiere_pago', 'hora_inicio', 'hora_fin', 'activa']);
+            ->get(['id', 'catalogo_id', 'nombre', 'descripcion', 'capacidad', 'costo', 'requiere_pago', 'hora_inicio', 'hora_fin', 'activa'])
+            ->map(function ($a) {
+                // Normalize TIME columns: MySQL returns "HH:MM:SS", frontend wants "HH:MM"
+                $a->hora_inicio = $a->hora_inicio ? substr($a->hora_inicio, 0, 5) : null;
+                $a->hora_fin    = $a->hora_fin    ? substr($a->hora_fin,    0, 5) : null;
+                return $a;
+            });
 
         return response()->json(['data' => $areas]);
     }
 
-    // ── GET /api/v1/areas-comunes/:id/horarios ────────────────────────────────
+    // â”€â”€ GET /api/v1/areas-comunes/:id/horarios â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     public function horarios(Request $request, string $areaId)
     {
         $tenantId = $request->get('tenant_id');
@@ -286,8 +307,8 @@ class ReservaController extends Controller
         return response()->json(['data' => $horarios]);
     }
 
-    // ── GET /api/v1/areas-comunes/:id/disponibilidad?fecha=YYYY-MM-DD ─────────────
-    // Retorna horarios del área para ese día + bloques ya reservados
+    // â”€â”€ GET /api/v1/areas-comunes/:id/disponibilidad?fecha=YYYY-MM-DD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Retorna horarios del Ã¡rea para ese dÃ­a + bloques ya reservados
     public function disponibilidad(Request $request, string $areaId)
     {
         $tenantId = $request->get('tenant_id');
@@ -310,28 +331,28 @@ class ReservaController extends Controller
                 'area'            => ['id' => $area->id, 'nombre' => $area->nombre, 'capacidad' => $area->capacidad],
                 'fecha'           => $request->fecha,
                 'dia_semana'      => $diaSemana,
-                'horario'         => $horarioDelDia,           // null si el área no abre ese día
+                'horario'         => $horarioDelDia,           // null si el Ã¡rea no abre ese dÃ­a
                 'reservas'        => $reservasActivas,
                 'disponible'      => $horarioDelDia && $reservasActivas->isEmpty(),
             ],
         ]);
     }
 
-    // ── POST /api/v1/areas-comunes ───────────────────────────────────────────────
+    // â”€â”€ POST /api/v1/areas-comunes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Body: { nombre, descripcion?, capacidad?, activa? }
-    // Si envias horarios[]: [{ dia_semana(0-6), hora_inicio, hora_fin }] se crean junto al área
+    // Si envias horarios[]: [{ dia_semana(0-6), hora_inicio, hora_fin }] se crean junto al Ã¡rea
     public function storeArea(Request $request)
     {
         $tenantId = $request->get('tenant_id');
 
         $validated = $request->validate([
-            'nombre'                 => 'required|string|max:100',
+            'catalogo_id'            => 'required|integer|exists:areas_catalogo,id',
             'descripcion'            => 'nullable|string',
             'capacidad'              => 'nullable|integer|min:1',
             'costo'                  => 'nullable|numeric|min:0',
             'requiere_pago'          => 'nullable|boolean',
-            'hora_inicio'            => 'nullable|date_format:H:i',
-            'hora_fin'               => 'nullable|date_format:H:i',
+            'hora_inicio'            => 'nullable|date_format:H:i,H:i:s',
+            'hora_fin'               => 'nullable|date_format:H:i,H:i:s',
             'activa'                 => 'nullable|boolean',
             'horarios'               => 'nullable|array',
             'horarios.*.dia_semana'  => 'required_with:horarios|integer|between:0,6',
@@ -339,16 +360,21 @@ class ReservaController extends Controller
             'horarios.*.hora_fin'    => 'required_with:horarios|date_format:H:i',
         ]);
 
+        // Nombre siempre viene del catalogo
+        $catalogo = AreaCatalogo::findOrFail($validated['catalogo_id']);
+        $nombre   = $catalogo->nombre;
+
         $area = AreaComun::create([
             'tenant_id'    => $tenantId,
-            'nombre'       => $validated['nombre'],
-            'descripcion'  => $validated['descripcion']  ?? null,
-            'capacidad'    => $validated['capacidad']    ?? null,
-            'costo'        => $validated['costo']        ?? 0,
+            'catalogo_id'  => $validated['catalogo_id'],
+            'nombre'       => $nombre,
+            'descripcion'  => $validated['descripcion']   ?? $catalogo?->descripcion,
+            'capacidad'    => $validated['capacidad']     ?? null,
+            'costo'        => $validated['costo']         ?? 0,
             'requiere_pago'=> $validated['requiere_pago'] ?? (($validated['costo'] ?? 0) > 0 ? 1 : 0),
-            'hora_inicio'  => $validated['hora_inicio']  ?? null,
-            'hora_fin'     => $validated['hora_fin']     ?? null,
-            'activa'       => $validated['activa']       ?? true,
+            'hora_inicio'  => $validated['hora_inicio']   ?? null,
+            'hora_fin'     => $validated['hora_fin']      ?? null,
+            'activa'       => $validated['activa']        ?? true,
         ]);
 
         if (!empty($validated['horarios'])) {
@@ -362,41 +388,74 @@ class ReservaController extends Controller
         }
 
         return response()->json([
-            'data'    => $area->load('horarios'),
-            'message' => 'Área común creada.',
+            'data'    => $area->load(['horarios', 'catalogo']),
+            'message' => 'Ãrea comÃºn creada.',
         ], 201);
     }
 
-    // ── PUT /api/v1/areas-comunes/:id ────────────────────────────────────────────
+    // â”€â”€ PUT /api/v1/areas-comunes/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     public function updateArea(Request $request, string $id)
     {
         $tenantId = $request->get('tenant_id');
         $area     = AreaComun::where('tenant_id', $tenantId)->findOrFail($id);
 
         $validated = $request->validate([
-            'nombre'        => 'sometimes|required|string|max:100',
+            'nombre'        => 'sometimes|nullable|string|max:100',
             'descripcion'   => 'nullable|string',
             'capacidad'     => 'nullable|integer|min:1',
             'costo'         => 'nullable|numeric|min:0',
             'requiere_pago' => 'nullable|boolean',
-            'hora_inicio'   => 'nullable|date_format:H:i',
-            'hora_fin'      => 'nullable|date_format:H:i',
+            'hora_inicio'   => 'nullable|date_format:H:i,H:i:s',
+            'hora_fin'      => 'nullable|date_format:H:i,H:i:s',
             'activa'        => 'nullable|boolean',
+            'dias'          => 'nullable|array',
+            'dias.*'        => 'integer|between:1,7',
         ]);
+
+        // Normalize time: strip seconds if sent as "HH:MM:SS"
+        foreach (['hora_inicio', 'hora_fin'] as $tf) {
+            if (!empty($validated[$tf])) {
+                $validated[$tf] = substr($validated[$tf], 0, 5);
+            }
+        }
 
         if (isset($validated['costo']) && !isset($validated['requiere_pago'])) {
             $validated['requiere_pago'] = $validated['costo'] > 0 ? 1 : 0;
         }
 
-        $area->update($validated);
+        $dias        = $validated['dias'] ?? null;
+        $horaInicio  = $validated['hora_inicio'] ?? $area->hora_inicio;
+        $horaFin     = $validated['hora_fin']    ?? $area->hora_fin;
+
+        $areaFields = collect($validated)->except(['dias'])->toArray();
+        $area->update($areaFields);
+
+        // Sync horarios cuando se envÃ­a el array de dÃ­as (incluso vacÃ­o = borrar todos)
+        if ($dias !== null && $horaInicio && $horaFin) {
+            // Frontend usa 1=Lunâ€¦7=Dom (ISO); Carbon/DB usa 0=Domâ€¦6=SÃ¡b â†’ 7â†’0, resto igual
+            $carbonDias = array_map(fn($d) => $d === 7 ? 0 : $d, $dias);
+
+            // Borrar dÃ­as no seleccionados
+            HorarioArea::where('area_id', $area->id)
+                ->whereNotIn('dia_semana', $carbonDias)
+                ->delete();
+
+            // Upsert dÃ­as seleccionados
+            foreach ($carbonDias as $dia) {
+                HorarioArea::updateOrCreate(
+                    ['area_id' => $area->id, 'dia_semana' => $dia],
+                    ['hora_inicio' => $horaInicio, 'hora_fin' => $horaFin]
+                );
+            }
+        }
 
         return response()->json([
             'data'    => $area->fresh('horarios'),
-            'message' => 'Área común actualizada.',
+            'message' => 'Ãrea comÃºn actualizada.',
         ]);
     }
 
-    // ── DELETE /api/v1/areas-comunes/:id (soft delete → activa = false) ──────────
+    // â”€â”€ DELETE /api/v1/areas-comunes/:id (soft delete â†’ activa = false) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Error 422 si tiene reservas pendientes o aprobadas
     public function destroyArea(Request $request, string $id)
     {
@@ -405,18 +464,18 @@ class ReservaController extends Controller
 
         if ($area->reservas()->whereIn('estado', ['pendiente', 'aprobada'])->exists()) {
             return response()->json([
-                'message' => 'No se puede desactivar: el área tiene reservas activas.',
+                'message' => 'No se puede desactivar: el Ã¡rea tiene reservas activas.',
             ], 422);
         }
 
         $area->update(['activa' => false]);
 
-        return response()->json(['message' => 'Área común desactivada.']);
+        return response()->json(['message' => 'Ãrea comÃºn desactivada.']);
     }
 
-    // ── POST /api/v1/areas-comunes/:id/horarios ──────────────────────────────────
-    // Body: { dia_semana(0=Dom..6=Sáb), hora_inicio, hora_fin }
-    // Upsert: si ya existe horario para ese día en esa área, lo actualiza
+    // â”€â”€ POST /api/v1/areas-comunes/:id/horarios â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Body: { dia_semana(0=Dom..6=SÃ¡b), hora_inicio, hora_fin }
+    // Upsert: si ya existe horario para ese dÃ­a en esa Ã¡rea, lo actualiza
     public function storeHorario(Request $request, string $areaId)
     {
         $tenantId = $request->get('tenant_id');
@@ -439,7 +498,7 @@ class ReservaController extends Controller
         ], 201);
     }
 
-    // ── PUT /api/v1/horarios/:id ─────────────────────────────────────────────────
+    // â”€â”€ PUT /api/v1/horarios/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     public function updateHorario(Request $request, string $horarioId)
     {
         $tenantId = $request->get('tenant_id');
@@ -457,7 +516,7 @@ class ReservaController extends Controller
         return response()->json(['data' => $horario->fresh(), 'message' => 'Horario actualizado.']);
     }
 
-    // ── DELETE /api/v1/horarios/:id ──────────────────────────────────────────────
+    // â”€â”€ DELETE /api/v1/horarios/:id â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     public function destroyHorario(Request $request, string $horarioId)
     {
         $tenantId = $request->get('tenant_id');
@@ -470,3 +529,6 @@ class ReservaController extends Controller
         return response()->json(['message' => 'Horario eliminado.']);
     }
 }
+
+
+

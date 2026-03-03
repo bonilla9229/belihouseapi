@@ -117,6 +117,7 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'tenant'])->group(function () {
     Route::apiResource('preautorizaciones',    PreautorizacionController::class);
 
     // Reservas
+    Route::get('areas-catalogo',                        [ReservaController::class, 'catalogoIndex']);
     Route::apiResource('reservas',               ReservaController::class);
     Route::post('reservas/{reserva}/aprobar',    [ReservaController::class, 'aprobar']);
     Route::post('reservas/{reserva}/rechazar',   [ReservaController::class, 'rechazar']);
@@ -136,6 +137,8 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'tenant'])->group(function () {
     Route::apiResource('proveedores',      ProveedorController::class);
     Route::get('categorias-gasto',         [GastoController::class, 'categorias']);
     Route::post('categorias-gasto',        [GastoController::class, 'storeCategorias']);
+    Route::put('categorias-gasto/{id}',    [GastoController::class, 'updateCategoria']);
+    Route::delete('categorias-gasto/{id}', [GastoController::class, 'destroyCategoria']);
 
     // Comunicados
     Route::apiResource('comunicados',                    ComunicadoController::class);
@@ -146,6 +149,8 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'tenant'])->group(function () {
     // Asambleas
     Route::apiResource('asambleas',                          AsambleaController::class);
     Route::post('asambleas/{asamblea}/asistencia',           [AsambleaController::class, 'registrarAsistencia']);
+    Route::post('asambleas/{asamblea}/asistencia/bulk',      [AsambleaController::class, 'registrarAsistenciaBulk']);
+    Route::patch('asambleas/{asamblea}/estado',             [AsambleaController::class, 'cambiarEstado']);
     Route::get('asambleas/{asamblea}/quorum',                [AsambleaController::class, 'quorum']);
 
     // Votaciones
@@ -177,3 +182,4 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'tenant'])->group(function () {
     Route::post('notificaciones/leer-todas', [AuthController::class, 'leerTodas']);
 
 });
+

@@ -76,8 +76,10 @@ class VotacionController extends Controller
             $votacion = Votacion::create([
                 'tenant_id'   => $tenantId,
                 'asamblea_id' => $validated['asamblea_id'] ?? null,
-                'pregunta'    => $pregunta,
-                'estado'      => 'abierta',
+                'titulo'      => $pregunta,
+                'fecha_inicio' => now(),
+                'fecha_fin'    => now()->addHours(2),
+                'estado'      => 'activa',
             ]);
 
             foreach ($validated['opciones'] as $texto) {
@@ -129,8 +131,8 @@ class VotacionController extends Controller
         ]);
 
         $payload = [];
-        if (isset($validated['titulo']))   $payload['pregunta'] = $validated['titulo'];
-        if (isset($validated['pregunta'])) $payload['pregunta'] = $validated['pregunta'];
+        if (isset($validated['titulo']))   $payload['titulo'] = $validated['titulo'];
+        if (isset($validated['pregunta'])) $payload['titulo'] = $validated['pregunta'];
 
         if (!empty($payload)) {
             $votacion->update($payload);
@@ -162,7 +164,7 @@ class VotacionController extends Controller
         $tenantId = $request->get('tenant_id');
 
         $votacion = Votacion::where('tenant_id', $tenantId)
-            ->where('estado', 'abierta')
+            ->where('estado', 'activa')
             ->findOrFail($id);
 
         $validated = $request->validate([
@@ -184,7 +186,6 @@ class VotacionController extends Controller
         if ($votacion->asamblea_id) {
             $presente = AsambleaAsistencia::where('asamblea_id', $votacion->asamblea_id)
                 ->where('unidad_id', $unidad->id)
-                ->where('presente', true)
                 ->exists();
             if (!$presente) {
                 return response()->json([
@@ -202,7 +203,6 @@ class VotacionController extends Controller
             'votacion_id' => $votacion->id,
             'opcion_id'   => $opcion->id,
             'unidad_id'   => $unidad->id,
-            'usuario_id'  => $request->user()->id,
         ]);
 
         return response()->json([
@@ -221,10 +221,10 @@ class VotacionController extends Controller
         $tenantId = $request->get('tenant_id');
 
         $votacion = Votacion::where('tenant_id', $tenantId)
-            ->where('estado', 'abierta')
+            ->where('estado', 'activa')
             ->findOrFail($id);
 
-        $votacion->update(['estado' => 'cerrada', 'cierre_at' => now()]);
+        $votacion->update(['estado' => 'cerrada', 'fecha_fin' => now()]);
 
         return response()->json([
             'data'    => $votacion->fresh(['opciones:id,votacion_id,texto']),
@@ -247,8 +247,8 @@ class VotacionController extends Controller
         $totalVotos = Voto::where('votacion_id', $votacion->id)->count();
 
         // Calcular peso total del PH (suma area_m2) para % ponderado
-        $totalArea = Unidad::where('tenant_id', $tenantId)->where('estado', 'activa')->sum('area_m2');
-        if (!$totalArea) $totalArea = Unidad::where('tenant_id', $tenantId)->where('estado', 'activa')->count();
+        $totalArea = Unidad::where('tenant_id', $tenantId)->where('activa', 1)->sum('area_m2');
+        if (!$totalArea) $totalArea = Unidad::where('tenant_id', $tenantId)->where('activa', 1)->count();
 
         $resultadosPorOpcion = $votacion->opciones->map(function (OpcionVotacion $opcion) use ($votacion, $totalVotos, $totalArea) {
             $votosOpcion = Voto::join('unidades', 'unidades.id', '=', 'votos.unidad_id')
@@ -280,7 +280,7 @@ class VotacionController extends Controller
         return response()->json([
             'data' => [
                 'votacion_id'  => $votacion->id,
-                'pregunta'     => $votacion->pregunta,
+                'titulo'     => $votacion->titulo,
                 'estado'       => $votacion->estado,
                 'total_votos'  => $totalVotos,
                 'resultados'   => $resultadosPorOpcion->values(),

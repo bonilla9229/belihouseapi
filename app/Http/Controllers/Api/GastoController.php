@@ -30,7 +30,14 @@ class GastoController extends Controller
         if ($request->filled('proveedor_id')) {
             $query->where('proveedor_id', $request->proveedor_id);
         }
-        // Filtro por mes (YYYY-MM)
+        // Filtro por rango de fechas (desde / hasta)
+        if ($request->filled('desde')) {
+            $query->where('fecha', '>=', $request->desde);
+        }
+        if ($request->filled('hasta')) {
+            $query->where('fecha', '<=', $request->hasta);
+        }
+        // Filtro por mes (YYYY-MM) — legacy
         if ($request->filled('mes')) {
             [$anio, $mesNum] = explode('-', $request->mes);
             $query->whereYear('fecha', $anio)->whereMonth('fecha', $mesNum);
@@ -208,33 +215,42 @@ class GastoController extends Controller
     }
 
     // ── GET /api/v1/gastos/resumen ────────────────────────────────────────────────
-    // Param: mes (YYYY-MM, default mes actual)
-    // Nota: categorias_gasto NO tiene columna presupuesto_mensual en schema → se retorna null
+    // Params: desde (YYYY-MM-DD) + hasta (YYYY-MM-DD)  OR  mes (YYYY-MM, default mes actual)
     public function resumen(Request $request)
     {
         $tenantId = $request->get('tenant_id');
-        $mes      = $request->get('mes', now()->format('Y-m'));
-        [$anio, $mesNum] = explode('-', $mes);
+
+        // Build date range: prefer desde/hasta, fall back to mes
+        if ($request->filled('desde') && $request->filled('hasta')) {
+            $desde = $request->get('desde');
+            $hasta = $request->get('hasta');
+            $mes   = substr($desde, 0, 7); // used only for response label
+        } else {
+            $mes   = $request->get('mes', now()->format('Y-m'));
+            [$anio, $mesNum] = explode('-', $mes);
+            $desde = "{$anio}-{$mesNum}-01";
+            $hasta = now()->createFromDate($anio, $mesNum, 1)->endOfMonth()->toDateString();
+        }
+
+        $applyRange = function ($q) use ($desde, $hasta) {
+            return $q->where('fecha', '>=', $desde)->where('fecha', '<=', $hasta);
+        };
 
         // Todas las categorías del tenant
         $categorias = CategoriaGasto::where('tenant_id', $tenantId)
             ->orderBy('nombre')
             ->get(['id', 'nombre', 'presupuesto_mensual']);
 
-        // Gastos agrupados por categoría en el mes (excluye sin categoría)
-        $gastos = Gasto::where('tenant_id', $tenantId)
-            ->whereYear('fecha', $anio)
-            ->whereMonth('fecha', $mesNum)
-            ->whereNotNull('categoria_id')
+        // Gastos agrupados por categoría en el rango (excluye sin categoría)
+        $gastos = $applyRange(
+            Gasto::where('tenant_id', $tenantId)->whereNotNull('categoria_id')
+        )
             ->select('categoria_id', DB::raw('SUM(monto) as gastado'), DB::raw('COUNT(*) as cantidad'))
             ->groupBy('categoria_id')
             ->get()
             ->keyBy('categoria_id');
 
-        $totalMes = (float) Gasto::where('tenant_id', $tenantId)
-            ->whereYear('fecha', $anio)
-            ->whereMonth('fecha', $mesNum)
-            ->sum('monto');
+        $totalMes = (float) $applyRange(Gasto::where('tenant_id', $tenantId))->sum('monto');
 
         $categoriaResumen = $categorias->map(function (CategoriaGasto $cat) use ($gastos) {
             $gastado             = (float) ($gastos[$cat->id]->gastado ?? 0);
@@ -252,11 +268,9 @@ class GastoController extends Controller
         });
 
         // Gastos sin categoría
-        $sinCategoria = (float) Gasto::where('tenant_id', $tenantId)
-            ->whereYear('fecha', $anio)
-            ->whereMonth('fecha', $mesNum)
-            ->whereNull('categoria_id')
-            ->sum('monto');
+        $sinCategoria = (float) $applyRange(
+            Gasto::where('tenant_id', $tenantId)->whereNull('categoria_id')
+        )->sum('monto');
 
         return response()->json([
             'data' => [
@@ -299,5 +313,32 @@ class GastoController extends Controller
         ]);
 
         return response()->json(['data' => $categoria, 'message' => 'Categoría creada.'], 201);
+    }
+
+    // -- PUT /api/v1/categorias-gasto/{id} -----------------------------------
+    public function updateCategoria(Request $request, string $id)
+    {
+        $tenantId  = $request->get('tenant_id');
+        $categoria = CategoriaGasto::where('tenant_id', $tenantId)->findOrFail($id);
+        $validated = $request->validate([
+            'nombre'              => 'sometimes|string|max:100',
+            'presupuesto_mensual' => 'nullable|numeric|min:0',
+            'activa'              => 'nullable|boolean',
+        ]);
+        $categoria->update($validated);
+        return response()->json(['data' => $categoria->fresh(), 'message' => 'Categoria actualizada.']);
+    }
+
+    // -- DELETE /api/v1/categorias-gasto/{id} --------------------------------
+    public function destroyCategoria(Request $request, string $id)
+    {
+        $tenantId  = $request->get('tenant_id');
+        $categoria = CategoriaGasto::where('tenant_id', $tenantId)->findOrFail($id);
+        if ($categoria->gastos()->exists()) {
+            $categoria->update(['activa' => false]);
+            return response()->json(['message' => 'Categoria desactivada (tiene gastos asociados).']);
+        }
+        $categoria->delete();
+        return response()->json(['message' => 'Categoria eliminada.']);
     }
 }

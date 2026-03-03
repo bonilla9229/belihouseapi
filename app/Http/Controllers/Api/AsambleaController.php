@@ -34,7 +34,7 @@ class AsambleaController extends Controller
         $items = $paginado->getCollection()->map(fn (Asamblea $a) => [
             'id'               => $a->id,
             'titulo'           => $a->titulo,
-            'tipo'             => null,   // sin columna en schema; aceptado en store pero no persistido
+            'tipo'             => $a->tipo,
             'fecha'            => $a->fecha,
             'lugar'            => $a->lugar,
             'estado'           => $a->estado,
@@ -65,30 +65,25 @@ class AsambleaController extends Controller
         $tenantId = $request->get('tenant_id');
 
         $validated = $request->validate([
-            'titulo'            => 'required|string|max:200',
-            'tipo'              => 'nullable|in:ordinaria,extraordinaria',
-            'descripcion'       => 'nullable|string',
-            'fecha'             => 'required|date',
-            'lugar'             => 'nullable|string|max:200',
-            'quorum_requerido'  => 'nullable|numeric|between:1,100', // informativo, no se persiste
+            'titulo' => 'required|string|max:200',
+            'tipo'  => 'nullable|in:ordinaria,extraordinaria,urgente',
+            'fecha'  => 'required|date',
+            'lugar'  => 'nullable|string|max:200',
+            'quorum_requerido' => 'nullable|numeric|between:1,100',
+            'orden_dia'        => 'nullable|array',
+            'orden_dia.*'      => 'string|max:300',
         ]);
-
-        // Combinar tipo + descripción ya que no hay columna tipo
-        $desc = $validated['descripcion'] ?? null;
-        if (!empty($validated['tipo'])) {
-            $desc = '[' . strtoupper($validated['tipo']) . '] ' . ($desc ?? '');
-            $desc = trim($desc);
-        }
 
         $asamblea = Asamblea::create([
-            'tenant_id'   => $tenantId,
-            'titulo'      => $validated['titulo'],
-            'descripcion' => $desc,
-            'fecha'       => $validated['fecha'],
-            'lugar'       => $validated['lugar'] ?? null,
-            'estado'      => 'programada',
+            'tenant_id'        => $tenantId,
+            'titulo'           => $validated['titulo'],
+            'tipo'             => $validated['tipo'] ?? 'ordinaria',
+            'fecha'            => $validated['fecha'],
+            'lugar'            => $validated['lugar'] ?? null,
+            'quorum_requerido' => $validated['quorum_requerido'] ?? 50,
+            'notas'            => !empty($validated['orden_dia']) ? json_encode($validated['orden_dia']) : null,
+            'estado'           => 'convocada',
         ]);
-
         return response()->json([
             'data'    => $asamblea,
             'message' => 'Asamblea creada.',
@@ -102,24 +97,27 @@ class AsambleaController extends Controller
         $tenantId = $request->get('tenant_id');
 
         $asamblea = Asamblea::with([
-                'asistencias:id,asamblea_id,unidad_id,usuario_id,nombre_representante,presente',
+                'asistencias:id,asamblea_id,unidad_id,propietario_id,nombre_asistente,tipo',
                 'asistencias.unidad:id,numero',
-                'votaciones:id,asamblea_id,pregunta,estado,cierre_at',
+                'votaciones:id,asamblea_id,titulo,estado,fecha_fin',
                 'votaciones.opciones:id,votacion_id,texto',
+                'votaciones.votos:id,votacion_id,opcion_id,unidad_id',
             ])
-            ->withCount(['asistencias as presentes_count' => fn ($q) => $q->where('presente', true)])
+            ->withCount('asistencias as presentes_count')
             ->where('tenant_id', $tenantId)
             ->findOrFail($id);
 
-        $totalUnidades = Unidad::where('tenant_id', $tenantId)->where('estado', 'activa')->count();
+        $totalUnidades = Unidad::where('tenant_id', $tenantId)->where('activa', 1)->count();
         $porcentaje    = $totalUnidades > 0
             ? round($asamblea->presentes_count / $totalUnidades * 100, 2)
             : 0;
 
-        $quorumRequerido = 50; // default — sin columna quorum_requerido en schema
+        $quorumRequerido = (float) ($asamblea->quorum_requerido ?? 50);
 
         return response()->json([
             'data' => array_merge($asamblea->toArray(), [
+                'tipo'      => $asamblea->tipo,
+                'orden_dia' => $asamblea->notas ? json_decode($asamblea->notas, true) : [],
                 'quorum' => [
                     'total_unidades'   => $totalUnidades,
                     'presentes'        => $asamblea->presentes_count,
@@ -138,26 +136,42 @@ class AsambleaController extends Controller
         $asamblea = Asamblea::where('tenant_id', $tenantId)->findOrFail($id);
 
         $validated = $request->validate([
-            'titulo'      => 'sometimes|string|max:200',
-            'descripcion' => 'nullable|string',
-            'fecha'       => 'sometimes|date',
-            'lugar'       => 'nullable|string|max:200',
-            'estado'      => 'nullable|in:programada,en_curso,finalizada,cancelada',
-            'acta'        => 'nullable|string',
+            'titulo' => 'sometimes|string|max:200',
+            'tipo' => 'nullable|in:ordinaria,extraordinaria,urgente',
+            'fecha' => 'sometimes|date',
+            'lugar' => 'nullable|string|max:200',
+            'quorum_requerido' => 'nullable|numeric|between:1,100',
+            'estado' => 'nullable|in:convocada,en_curso,realizada,cancelada',
+            'acta_url' => 'nullable|string',
+            'orden_dia' => 'nullable|array',
+            'orden_dia.*' => 'string|max:300',
         ]);
 
-        $asamblea->update($validated);
+        $payload = array_filter([
+            'titulo' => $validated['titulo'] ?? null,
+            'tipo' => $validated['tipo'] ?? null,
+            'fecha' => $validated['fecha'] ?? null,
+            'lugar' => $validated['lugar'] ?? null,
+            'quorum_requerido' => $validated['quorum_requerido'] ?? null,
+            'estado' => $validated['estado'] ?? null,
+            'acta_url' => $validated['acta_url'] ?? null,
+        ], fn($v) => !is_null($v));
+
+        if (array_key_exists('orden_dia', $validated)) {
+            $payload['notas'] = json_encode($validated['orden_dia']);
+        }
+
+        $asamblea->update($payload);
 
         return response()->json(['data' => $asamblea->fresh(), 'message' => 'Asamblea actualizada.']);
     }
 
-    // ── DELETE /api/v1/asambleas/:id ────────────────────────────────────────────────
     public function destroy(Request $request, string $id)
     {
         $tenantId = $request->get('tenant_id');
         $asamblea = Asamblea::where('tenant_id', $tenantId)->findOrFail($id);
 
-        if (in_array($asamblea->estado, ['en_curso', 'finalizada'])) {
+        if (in_array($asamblea->estado, ['en_curso', 'realizada'])) {
             return response()->json(['message' => 'No se puede eliminar una asamblea en curso o finalizada.'], 422);
         }
 
@@ -174,11 +188,15 @@ class AsambleaController extends Controller
         $tenantId = $request->get('tenant_id');
         $asamblea = Asamblea::where('tenant_id', $tenantId)->findOrFail($id);
 
+        if (in_array($asamblea->estado, ['realizada', 'cancelada'])) {
+            return response()->json(['message' => 'No se puede modificar la asistencia de una asamblea cerrada.'], 422);
+        }
+
         $validated = $request->validate([
             'unidad_id'        => 'required|integer',
             'presente'         => 'nullable|boolean',
-            'representado_por' => 'nullable|string|max:150', // → columna nombre_representante
-            'usuario_id'       => 'nullable|integer',
+            'nombre_asistente' => 'nullable|string|max:150',
+            'propietario_id'   => 'nullable|integer',
         ]);
 
         // Validar unidad pertenece al tenant
@@ -189,12 +207,19 @@ class AsambleaController extends Controller
             return response()->json(['message' => 'Unidad no encontrada en este PH.'], 422);
         }
 
+        // presente=false: eliminar registro en lugar de upsert
+        if (isset($validated['presente']) && $validated['presente'] === false) {
+            AsambleaAsistencia::where('asamblea_id', $asamblea->id)->where('unidad_id', $validated['unidad_id'])->delete();
+            $quorum = $this->calcularQuorum($asamblea->id, $tenantId);
+            return response()->json(['quorum' => $quorum, 'message' => 'Asistencia removida.']);
+        }
+
         $asistencia = AsambleaAsistencia::updateOrCreate(
             ['asamblea_id' => $asamblea->id, 'unidad_id' => $validated['unidad_id']],
             [
-                'presente'             => $validated['presente'] ?? true,
-                'nombre_representante' => $validated['representado_por'] ?? null,
-                'usuario_id'           => $validated['usuario_id'] ?? null,
+
+                'nombre_asistente'     => $validated['nombre_asistente'] ?? null,
+                'propietario_id'       => $validated['propietario_id'] ?? null,
             ]
         );
 
@@ -213,6 +238,72 @@ class AsambleaController extends Controller
     // Cálculo en tiempo real.
     // Nota: 'coeficiente' no existe en unidades; se usa area_m2 como peso ponderado.
     // total_coeficiente_presentes = suma de area_m2 de unidades presentes (o 1 si area_m2 es null)
+
+    //  POST /api/v1/asambleas/:id/asistencia/bulk 
+    // Marcar/desmarcar todas las unidades de un solo golpe.
+    public function registrarAsistenciaBulk(Request $request, string $id)
+    {
+        $tenantId = $request->get('tenant_id');
+        $asamblea = Asamblea::where('tenant_id', $tenantId)->findOrFail($id);
+
+        if (in_array($asamblea->estado, ['realizada', 'cancelada'])) {
+            return response()->json(['message' => 'No se puede modificar la asistencia de una asamblea cerrada.'], 422);
+        }
+
+        $validated = $request->validate([
+            'presente'    => 'required|boolean',
+            'unidad_ids'  => 'nullable|array',
+            'unidad_ids.*' => 'integer',
+        ]);
+
+        $presente  = $validated['presente'];
+        $unidadIds = $validated['unidad_ids'] ?? null;
+
+        // Si no se pasan ids especificas, obtener todas las activas del tenant
+        if (empty($unidadIds)) {
+            $unidadIds = Unidad::where('tenant_id', $tenantId)->where('activa', 1)->pluck('id')->toArray();
+        }
+
+        if (!$presente) {
+            AsambleaAsistencia::where('asamblea_id', $asamblea->id)
+                ->whereIn('unidad_id', $unidadIds)
+                ->delete();
+        } else {
+            $now = now();
+            $rows = array_map(fn($uid) => [
+                'asamblea_id' => $asamblea->id,
+                'unidad_id' => $uid,
+                'hora_registro' => $now,
+            ], $unidadIds);
+            // insertOrIgnore to avoid duplicate key errors
+            AsambleaAsistencia::insertOrIgnore($rows);
+        }
+
+        $quorum = $this->calcularQuorum($asamblea->id, $tenantId);
+        return response()->json([
+            'message' => $presente ? 'Todas las unidades marcadas como presentes.' : 'Asistencia limpiada.',
+            'quorum'  => $quorum,
+        ]);
+    }
+
+    // -- PATCH /api/v1/asambleas/:id/estado ------------------------------------------
+    public function cambiarEstado(Request $request, string $id)
+    {
+        $tenantId = $request->get('tenant_id');
+        $asamblea = Asamblea::where('tenant_id', $tenantId)->findOrFail($id);
+
+        $validated = $request->validate([
+            'estado' => 'required|in:convocada,en_curso,realizada,cancelada',
+        ]);
+
+        $asamblea->update(['estado' => $validated['estado']]);
+
+        return response()->json([
+            'data'    => $asamblea->fresh(),
+            'message' => 'Estado actualizado.',
+        ]);
+    }
+
     public function quorum(Request $request, string $id)
     {
         $tenantId = $request->get('tenant_id');
@@ -227,19 +318,18 @@ class AsambleaController extends Controller
     // ── Helper: calcular quórum ───────────────────────────────────────────────────
     private function calcularQuorum(int $asambleaId, int $tenantId, float $quorumRequerido = 50): array
     {
-        $totalUnidades = Unidad::where('tenant_id', $tenantId)->where('estado', 'activa')->count();
+        $totalUnidades = Unidad::where('tenant_id', $tenantId)->where('activa', 1)->count();
 
         // Unidades presentes con su area_m2 (proxy de coeficiente)
         $presentesUnidades = AsambleaAsistencia::join('unidades', 'unidades.id', '=', 'asamblea_asistencia.unidad_id')
             ->where('asamblea_asistencia.asamblea_id', $asambleaId)
-            ->where('asamblea_asistencia.presente', true)
             ->select('unidades.id', 'unidades.area_m2')
             ->get();
 
         $cantidadPresentes         = $presentesUnidades->count();
         $totalCoeficientePresentes = $presentesUnidades->sum(fn ($u) => (float) ($u->area_m2 ?? 1));
         $totalCoeficientePH        = Unidad::where('tenant_id', $tenantId)
-            ->where('estado', 'activa')
+            ->where('activa', 1)
             ->sum('area_m2') ?: $totalUnidades; // fallback a conteo si area_m2 es null
 
         $porcentajeActual = $totalCoeficientePH > 0

@@ -37,8 +37,12 @@ class ComunicadoController extends Controller
         if ($request->has('activo') && $esAdmin) {
             $query->where('publicado', $request->boolean('activo'));
         }
-        if ($request->filled('buscar')) {
-            $b = '%' . $request->buscar . '%';
+        // Param: estado=publicado|borrador (solo admin, alternativa semántica a activo)
+        if ($request->filled('estado') && $esAdmin) {
+            $query->where('publicado', $request->estado === 'publicado');
+        }
+        if ($request->filled('buscar') || $request->filled('search')) {
+            $b = '%' . ($request->filled('buscar') ? $request->buscar : $request->search) . '%';
             $query->where(function ($q) use ($b) {
                 $q->where('titulo', 'like', $b)->orWhere('cuerpo', 'like', $b);
             });
@@ -53,13 +57,14 @@ class ComunicadoController extends Controller
 
         $items = $paginado->getCollection()->map(function (Comunicado $c) use ($esAdmin, $totalUsuarios) {
             $item = [
-                'id'            => $c->id,
-                'titulo'        => $c->titulo,
-                'tipo'          => $c->tipo,
-                'publicado'     => $c->publicado,
+                'id'                 => $c->id,
+                'titulo'             => $c->titulo,
+                'tipo'               => $c->tipo,
+                'publicado'          => $c->publicado,
+                'estado'             => $c->publicado ? 'publicado' : 'borrador',
                 'fecha_publicacion'  => $c->fecha_publicacion,
-                'autor'         => $c->autor,
-                'created_at'    => $c->created_at,
+                'autor'              => $c->autor,
+                'created_at'         => $c->created_at,
             ];
             if ($esAdmin) {
                 $item['lecturas']           = $c->lecturas_count;
@@ -84,8 +89,7 @@ class ComunicadoController extends Controller
 
     // ── POST /api/v1/comunicados ─────────────────────────────────────────────────
     // Body: { titulo, cuerpo, tipo, audiencia (ignorado), fecha_expiracion (ignorado) }
-    // Estado inicial: publicado=false (borrador)
-    // Nota: audiencia y fecha_expiracion no existen en schema; tipos schema: general|urgente|informativo
+    // tipos válidos en schema: aviso|urgente|circular|boletin|evento
     public function store(Request $request)
     {
         $tenantId = $request->get('tenant_id');
@@ -93,21 +97,17 @@ class ComunicadoController extends Controller
         $validated = $request->validate([
             'titulo'            => 'required|string|max:200',
             'cuerpo'         => 'required|string',
-            'tipo'              => 'nullable|in:general,urgente,informativo,aviso,circular,evento',
+            'tipo'              => 'nullable|in:aviso,urgente,circular,boletin,evento',
             'audiencia'         => 'nullable|string',   // aceptado, sin columna en schema
             'fecha_expiracion'  => 'nullable|date',     // aceptado, sin columna en schema
         ]);
-
-        // Mapear tipos no-schema a tipos válidos
-        $tipoMap = ['aviso' => 'general', 'circular' => 'informativo', 'evento' => 'informativo'];
-        $tipo = $tipoMap[$validated['tipo'] ?? ''] ?? ($validated['tipo'] ?? 'general');
 
         $comunicado = Comunicado::create([
             'tenant_id' => $tenantId,
             'autor_id'  => $request->user()->id,
             'titulo'    => $validated['titulo'],
             'cuerpo' => $validated['cuerpo'],
-            'tipo'      => $tipo,
+            'tipo'      => $validated['tipo'] ?? 'aviso',
             'publicado' => false,
         ]);
 
@@ -150,13 +150,8 @@ class ComunicadoController extends Controller
         $validated = $request->validate([
             'titulo'    => 'sometimes|string|max:200',
             'cuerpo' => 'sometimes|string',
-            'tipo'      => 'nullable|in:general,urgente,informativo,aviso,circular,evento',
+            'tipo'      => 'nullable|in:aviso,urgente,circular,boletin,evento',
         ]);
-
-        if (isset($validated['tipo'])) {
-            $tipoMap = ['aviso' => 'general', 'circular' => 'informativo', 'evento' => 'informativo'];
-            $validated['tipo'] = $tipoMap[$validated['tipo']] ?? $validated['tipo'];
-        }
 
         $comunicado->update($validated);
 
