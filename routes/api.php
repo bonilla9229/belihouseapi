@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\VehiculoController;
 use App\Http\Controllers\Api\VotacionController;
 use App\Http\Controllers\Api\AsambleaController;
 use App\Http\Controllers\Api\ProveedorController;
+use App\Http\Controllers\Api\ComprobantePagoController;
 use App\Http\Controllers\Api\ConfiguracionController;
 use App\Http\Controllers\Api\ConceptoCobroController;
 use App\Http\Controllers\Api\UsuarioController;
@@ -101,6 +102,12 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'tenant'])->group(function () {
     // Pagos
     Route::apiResource('pagos',        PagoController::class);
     Route::post('pagos/{pago}/anular', [PagoController::class, 'anular']);
+
+    // Comprobantes de pago (enviados por residentes, pendientes de aprobacion admin)
+    Route::get('comprobantes-pago',                [ComprobantePagoController::class, 'index']);
+    Route::post('comprobantes-pago',               [ComprobantePagoController::class, 'store']);
+    Route::post('comprobantes-pago/{id}/aprobar',  [ComprobantePagoController::class, 'aprobar']);
+    Route::post('comprobantes-pago/{id}/rechazar', [ComprobantePagoController::class, 'rechazar']);
 
     // Tickets
     Route::apiResource('tickets',      TicketController::class);
