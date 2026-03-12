@@ -11,6 +11,7 @@ use App\Models\TicketHistorial;
 use App\Models\Unidad;
 use App\Models\Usuario;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class TicketController extends Controller
 {
@@ -112,6 +113,7 @@ class TicketController extends Controller
             'ubicacion'    => 'nullable|string|max:200',
             'categoria_id' => 'nullable|integer',
             'prioridad'    => 'nullable|in:baja,media,alta,urgente',
+            'foto'         => 'nullable|file|image|max:5120',  // max 5 MB
         ]);
 
         // Validar que la categoría pertenece al tenant
@@ -134,6 +136,13 @@ class TicketController extends Controller
             }
         }
 
+        // Handle photo upload
+        $fotoUrl = null;
+        if ($request->hasFile('foto')) {
+            $path    = $request->file('foto')->store('tickets', 'public');
+            $fotoUrl = url(Storage::url($path));
+        }
+
         $ticket = Ticket::create([
             'tenant_id'    => $tenantId,
             'numero'       => 'TMP',   // will be replaced after insert
@@ -144,6 +153,7 @@ class TicketController extends Controller
             'categoria_id' => $validated['categoria_id'] ?? null,
             'prioridad'    => $validated['prioridad'] ?? 'media',
             'estado'       => 'abierto',
+            'foto_url'     => $fotoUrl,
             'reportado_por' => $request->user()->id,
         ]);
 
@@ -199,7 +209,7 @@ class TicketController extends Controller
 
         return response()->json([
             'data' => array_merge($ticket->only([
-                'id', 'titulo', 'descripcion', 'prioridad', 'estado',
+                'id', 'titulo', 'descripcion', 'foto_url', 'prioridad', 'estado',
                 'created_at', 'updated_at',
             ]), [
                 'unidad'      => $ticket->unidad,

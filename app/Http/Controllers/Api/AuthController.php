@@ -8,6 +8,7 @@ use App\Models\Role;
 use App\Models\Notificacion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
@@ -112,6 +113,44 @@ class AuthController extends Controller
         ], 201);
     }
 
+
+    // SOLICITUD DE ACCESO por correo (no requiere Google)
+    // POST /api/v1/solicitud-acceso (ruta publica)
+    public function solicitudAcceso(Request $request)
+    {
+        $validated = $request->validate([
+            'nombre'    => 'required|string|max:100',
+            'apellido'  => 'nullable|string|max:100',
+            'email'     => ['required', 'email', 'max:150', Rule::unique('usuarios', 'email')],
+            'rol'       => 'required|in:residente,guardia',
+            'tenant_id' => 'required|integer|exists:tenants,id',
+        ], [
+            'email.unique' => 'Ya existe una cuenta con este correo electr�nico.',
+        ]);
+
+        $rol = Role::where('tenant_id', $validated['tenant_id'])
+            ->where('nombre', $validated['rol'])
+            ->first();
+
+        if (!$rol) {
+            return response()->json(['message' => 'El rol solicitado no existe en esta comunidad. Contacta al administrador.'], 422);
+        }
+
+        Usuario::create([
+            'tenant_id'     => $validated['tenant_id'],
+            'rol_id'        => $rol->id,
+            'nombre'        => $validated['nombre'],
+            'apellido'      => $validated['apellido'] ?? null,
+            'email'         => $validated['email'],
+            'password_hash' => '',
+            'status'        => 'pendiente',
+            'activo'        => false,
+        ]);
+
+        return response()->json([
+            'message' => 'Solicitud enviada. El administrador la revisar� y te notificar� por correo.',
+        ], 201);
+    }
     // LOGOUT
     public function logout(Request $request)
     {
@@ -152,6 +191,25 @@ class AuthController extends Controller
                 ] : null,
             ]
         ]);
+    }
+
+    // CAMBIAR CONTRASEÑA
+    public function changePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => 'required|string',
+            'new_password'     => 'required|string|min:8|confirmed',
+        ]);
+
+        $user = $request->user();
+
+        if (!\Illuminate\Support\Facades\Hash::check($request->current_password, $user->password_hash)) {
+            return response()->json(['message' => 'La contraseña actual es incorrecta.'], 422);
+        }
+
+        $user->update(['password_hash' => \Illuminate\Support\Facades\Hash::make($request->new_password)]);
+
+        return response()->json(['message' => 'Contraseña actualizada correctamente.']);
     }
 
     // NOTIFICACIONES

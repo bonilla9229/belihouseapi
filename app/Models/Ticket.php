@@ -9,7 +9,7 @@ class Ticket extends Model
     protected $fillable = [
         'tenant_id', 'numero', 'unidad_id', 'ubicacion', 'area_comun_id', 'categoria_id',
         'reportado_por', 'asignado_a', 'asignado_nombre',
-        'titulo', 'descripcion', 'prioridad', 'estado',
+        'titulo', 'descripcion', 'foto_url', 'prioridad', 'estado',
         'fecha_limite', 'costo_estimado', 'costo_real',
     ];
 

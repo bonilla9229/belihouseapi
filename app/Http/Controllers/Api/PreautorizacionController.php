@@ -24,11 +24,14 @@ class PreautorizacionController extends Controller
         }
         if ($request->filled('search')) {
             $s = '%' . $request->search . '%';
-            $query->where(function ($q) use ($s) {
+            $query->where(function ($q) use ($s, $request) {
                 $q->where('nombre_visitante', 'like', $s)
                   ->orWhere('cedula_visitante', 'like', $s)
                   ->orWhere('placa_visitante', 'like', $s);
             });
+        }
+        if ($request->filled('qr_token')) {
+            $query->where('qr_token', $request->qr_token);
         }
 
         $preauths = $query->orderByDesc('created_at')

@@ -194,14 +194,28 @@ class TenantController extends Controller
 
         // ── 5. Últimos 4 accesos de hoy con visitante y unidad ────────────
         $accesosRecientes = Acceso::with([
-                'visitante:id,nombre,cedula',
+                'visitante:id,nombre,cedula,placa',
                 'unidad:id,numero',
+                'areaComun:id,nombre,catalogo_id',
+                'areaComun.catalogo:id,icono,color_bg,color_text',
             ])
             ->where('tenant_id', $tenantId)
             ->whereDate('fecha_hora_entrada', $hoy)
             ->orderByDesc('fecha_hora_entrada')
             ->limit(4)
-            ->get(['id', 'visitante_id', 'unidad_id', 'tipo', 'fecha_hora_entrada']);
+            ->get(['id', 'visitante_id', 'unidad_id', 'area_comun_id', 'tipo', 'fecha_hora_entrada'])
+            ->map(fn ($a) => [
+                'id'                 => $a->id,
+                'visitante'          => $a->visitante,
+                'unidad'             => $a->unidad,
+                'area_comun'         => $a->areaComun ? [
+                    'id'     => $a->areaComun->id,
+                    'nombre' => $a->areaComun->nombre,
+                    'icono'  => $a->areaComun->catalogo?->icono,
+                ] : null,
+                'tipo'               => $a->tipo,
+                'fecha_hora_entrada' => $a->fecha_hora_entrada,
+            ]);
 
         // ── 6. Actividad mensual — cacheada 5 min (UNION pagos+gastos en 1 query) ──────
         $actividad = Cache::remember("dashboard.actividad.{$tenantId}", 300,

@@ -9,13 +9,13 @@ class Usuario extends Authenticatable
 
     protected $table = 'usuarios';
     protected $fillable = [
-        'tenant_id','rol_id','codigo','nombre','apellido','email',
-        'telefono','password_hash','avatar_url','activo'
+        'tenant_id','rol_id','codigo','nombre','apellido','email','google_id',
+        'telefono','password_hash','avatar_url','activo','status',
     ];
     protected $hidden = ['password_hash'];
 
     public function getAuthPassword() { return $this->password_hash; }
 
     public function tenant() { return $this->belongsTo(Tenant::class); }
-    public function rol() { return $this->belongsTo(Role::class); }
+    public function rol()    { return $this->belongsTo(Role::class); }
 }

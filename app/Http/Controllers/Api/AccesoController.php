@@ -21,6 +21,8 @@ class AccesoController extends Controller
         $query = Acceso::with([
                 'visitante:id,nombre,cedula,placa',
                 'unidad:id,numero',
+                'areaComun:id,nombre,catalogo_id',
+                'areaComun.catalogo:id,icono,color_bg,color_text',
                 'autorizadoPor:id,nombre,apellido',
             ])
             ->where('tenant_id', $tenantId)
@@ -51,6 +53,11 @@ class AccesoController extends Controller
             'id'                  => $a->id,
             'visitante'           => $a->visitante,
             'unidad'              => $a->unidad,
+            'area_comun'          => $a->areaComun ? [
+                'id'     => $a->areaComun->id,
+                'nombre' => $a->areaComun->nombre,
+                'icono'  => $a->areaComun->catalogo?->icono,
+            ] : null,
             'tipo'                => $a->tipo,
             'fecha_hora_entrada'  => $a->fecha_hora_entrada,
             'fecha_hora_salida'   => $a->fecha_hora_salida,
@@ -90,6 +97,7 @@ class AccesoController extends Controller
             'placa'          => 'nullable|string|max:20',
             'tipo'           => 'required|in:visitante,delivery,proveedor,otro',
             'unidad_id'      => 'nullable|integer',
+            'area_comun_id'  => 'nullable|integer|exists:areas_comunes,id',
             'motivo'         => 'nullable|string|max:150',
             'metodo_entrada' => 'nullable|string|max:30',
             'qr_token'       => 'nullable|string|max:100',
@@ -129,6 +137,7 @@ class AccesoController extends Controller
         $acceso = Acceso::create([
             'tenant_id'          => $tenantId,
             'unidad_id'          => $validated['unidad_id'] ?? null,
+            'area_comun_id'      => $validated['area_comun_id'] ?? null,
             'visitante_id'       => $visitante->id,
             'autorizado_por'     => $request->user()->id,
             'tipo'               => $validated['tipo'],
@@ -140,10 +149,20 @@ class AccesoController extends Controller
             'fecha_hora_entrada' => now(),
         ]);
 
+        // Si el acceso proviene de una pre-autorización, desactivarla para que
+        // no vuelva a aparecer en la lista de espera del guardia.
+        if (!empty($validated['qr_token'])) {
+            Preautorizacion::where('tenant_id', $tenantId)
+                ->where('qr_token', $validated['qr_token'])
+                ->update(['activa' => false]);
+        }
+
         return response()->json([
             'data'    => $acceso->load([
                 'visitante:id,nombre,cedula,placa',
                 'unidad:id,numero',
+                'areaComun:id,nombre,catalogo_id',
+                'areaComun.catalogo:id,icono,color_bg,color_text',
                 'autorizadoPor:id,nombre,apellido',
             ]),
             'message' => 'Acceso registrado.',

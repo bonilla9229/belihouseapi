@@ -25,6 +25,9 @@ use App\Http\Controllers\Api\UsuarioController;
 use App\Http\Controllers\Api\LocalController;
 use App\Http\Controllers\Api\EstacionamientoController;
 
+use App\Http\Controllers\Api\GoogleAuthController;
+use App\Http\Controllers\Api\ApprovalController;
+
 // ============================================================
 // RUTAS PÚBLICAS (sin autenticación)
 // ============================================================
@@ -34,6 +37,15 @@ Route::prefix('v1')->group(function () {
     Route::post('login',    [AuthController::class, 'login']);
     Route::post('register', [AuthController::class, 'register']); // registro nuevo PH
 
+    // Google OAuth — pre-register (stores rol+tenant_id in session before Google redirect)
+    Route::post('auth/google/pre-register', [GoogleAuthController::class, 'preRegister']);
+
+    // Solicitud de acceso con correo (sin Google, pendiente de aprobacion admin)
+    Route::post('solicitud-acceso', [AuthController::class, 'solicitudAcceso']);
+
+    // Public tenant list for register dropdown
+    Route::get('tenants-publicos', [GoogleAuthController::class, 'tenants']);
+
 });
 
 // ============================================================
@@ -42,8 +54,14 @@ Route::prefix('v1')->group(function () {
 Route::prefix('v1')->middleware(['auth:sanctum', 'tenant'])->group(function () {
 
     // Auth
-    Route::post('logout',  [AuthController::class, 'logout']);
-    Route::get('me',       [AuthController::class, 'me']);
+    Route::post('logout',          [AuthController::class, 'logout']);
+    Route::get('me',               [AuthController::class, 'me']);
+    Route::post('me/password',     [AuthController::class, 'changePassword']);
+
+    // Admin: user approvals (Google OAuth registrations)
+    Route::get('aprobaciones',                        [ApprovalController::class, 'index']);
+    Route::post('aprobaciones/{id}/aprobar',          [ApprovalController::class, 'approve']);
+    Route::post('aprobaciones/{id}/rechazar',         [ApprovalController::class, 'reject']);
 
     // Tenant
     Route::get('tenant',   [TenantController::class, 'show']);

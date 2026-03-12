@@ -280,7 +280,10 @@ class ReservaController extends Controller
     {
         $tenantId = $request->get('tenant_id');
 
-        $areas = AreaComun::with(['horarios' => fn ($q) => $q->orderBy('dia_semana')])
+        $areas = AreaComun::with([
+                'horarios' => fn ($q) => $q->orderBy('dia_semana'),
+                'catalogo:id,icono,color_bg,color_text',
+            ])
             ->where('tenant_id', $tenantId)
             ->orderBy('nombre')
             ->get(['id', 'catalogo_id', 'nombre', 'descripcion', 'capacidad', 'costo', 'requiere_pago', 'hora_inicio', 'hora_fin', 'activa'])
