@@ -7,7 +7,6 @@ use App\Models\Comunicado;
 use App\Models\ComunicadoLectura;
 use App\Models\Usuario;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class ComunicadoController extends Controller
 {

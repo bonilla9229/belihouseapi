@@ -135,10 +135,12 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'tenant'])->group(function () {
     Route::post('tickets/{ticket}/asignar',            [TicketController::class, 'asignar']);
     Route::get('categorias-ticket',                    [TicketController::class, 'categorias']);
 
-    // Accesos — ruta estática ANTES del apiResource para evitar shadowing
-    Route::get('accesos/analitica',            [AccesoController::class, 'analitica']);    Route::post('accesos/verificar-pin',       [AccesoController::class, 'verificarPin']);    Route::apiResource('accesos',              AccesoController::class);
-    Route::post('accesos/{acceso}/salida',     [AccesoController::class, 'registrarSalida']);
+    // Accesos — rutas estáticas ANTES del apiResource para evitar shadowing
+    Route::get('accesos/analitica',            [AccesoController::class, 'analitica']);
+    Route::post('accesos/verificar-pin',       [AccesoController::class, 'verificarPin']);
     Route::get('accesos/buscar-preauth',       [AccesoController::class, 'buscarPreauth']); // por cédula o placa
+    Route::apiResource('accesos',              AccesoController::class);
+    Route::post('accesos/{acceso}/salida',     [AccesoController::class, 'registrarSalida']);
     Route::apiResource('preautorizaciones',    PreautorizacionController::class);
 
     // Reservas

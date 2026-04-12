@@ -7,11 +7,21 @@ use App\Models\Tenant;
 use App\Models\Role;
 use App\Models\Notificacion;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
+    private function generateCodigo(): string
+    {
+        $chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        do {
+            $code = 'USR-' . substr(str_shuffle(str_repeat($chars, 4)), 0, 6);
+        } while (DB::table('usuarios')->where('codigo', $code)->exists());
+        return $code;
+    }
+
     // LOGIN
     public function login(Request $request)
     {
@@ -139,6 +149,7 @@ class AuthController extends Controller
         Usuario::create([
             'tenant_id'     => $validated['tenant_id'],
             'rol_id'        => $rol->id,
+            'codigo'        => $this->generateCodigo(),
             'nombre'        => $validated['nombre'],
             'apellido'      => $validated['apellido'] ?? null,
             'email'         => $validated['email'],

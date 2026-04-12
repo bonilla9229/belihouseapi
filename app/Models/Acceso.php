@@ -16,7 +16,7 @@ class Acceso extends Model
     }
 
     protected $fillable = [
-        'tenant_id', 'visitante_id', 'unidad_id', 'area_comun_id', 'residente_id',
+        'tenant_id', 'visitante_id', 'unidad_id', 'area_comun_id',
         'tipo', 'motivo', 'cedula', 'empresa', 'fecha_hora_entrada', 'fecha_hora_salida',
         'autorizado_por', 'observaciones', 'metodo_entrada', 'qr_token',
     ];
@@ -30,6 +30,5 @@ class Acceso extends Model
     public function visitante()    { return $this->belongsTo(Visitante::class); }
     public function unidad()       { return $this->belongsTo(Unidad::class); }
     public function areaComun()    { return $this->belongsTo(\App\Models\AreaComun::class, 'area_comun_id'); }
-    public function residente()    { return $this->belongsTo(Residente::class); }
     public function autorizadoPor(){ return $this->belongsTo(Usuario::class, 'autorizado_por'); }
 }

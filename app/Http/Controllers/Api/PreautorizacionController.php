@@ -100,6 +100,7 @@ class PreautorizacionController extends Controller
             'fecha_hasta'      => 'nullable|date',
             'descripcion'      => 'nullable|string|max:200',
             'activa'           => 'nullable|boolean',
+            'estado'           => 'nullable|in:pendiente,admitido,rechazado',
         ]);
 
         $preauth->update($validated);

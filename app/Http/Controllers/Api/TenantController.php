@@ -247,7 +247,7 @@ class TenantController extends Controller
         $base = Ticket::where('tenant_id', $tenantId);
 
         $abiertos = (clone $base)
-            ->whereIn('estado', ['abierto', 'en_proceso', 'en_espera'])
+            ->whereIn('estado', ['abierto', 'en_progreso', 'en_espera'])
             ->count();
 
         $urgentes = (clone $base)

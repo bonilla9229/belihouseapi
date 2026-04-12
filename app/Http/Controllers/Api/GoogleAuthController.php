@@ -49,7 +49,7 @@ class GoogleAuthController extends Controller
     public function preRegister(Request $request)
     {
         $request->validate([
-            'rol'       => 'required|in:residente,seguridad',
+            'rol'       => 'required|in:residente,guardia',
             'tenant_id' => 'required|exists:tenants,id',
         ]);
 

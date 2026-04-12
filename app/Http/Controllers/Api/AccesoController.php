@@ -149,12 +149,11 @@ class AccesoController extends Controller
             'fecha_hora_entrada' => now(),
         ]);
 
-        // Si el acceso proviene de una pre-autorización, desactivarla para que
-        // no vuelva a aparecer en la lista de espera del guardia.
+        // Si el acceso proviene de una pre-autorización, desactivarla y marcarla como admitida.
         if (!empty($validated['qr_token'])) {
             Preautorizacion::where('tenant_id', $tenantId)
                 ->where('qr_token', $validated['qr_token'])
-                ->update(['activa' => false]);
+                ->update(['activa' => false, 'estado' => 'admitido']);
         }
 
         return response()->json([
@@ -184,7 +183,7 @@ class AccesoController extends Controller
             return response()->json(['valid' => true]); // if no PIN configured, allow
         }
 
-        return response()->json(['valid' => $pin === $stored]);
+        return response()->json(['valid' => hash_equals($stored, $pin)]);
     }
 
     // ── GET /api/v1/accesos/:id ───────────────────────────────────────────────────
@@ -210,9 +209,20 @@ class AccesoController extends Controller
         $acceso   = Acceso::where('tenant_id', $tenantId)->findOrFail($id);
 
         $validated = $request->validate([
-            'unidad_id'    => 'nullable|integer',
+            'unidad_id'    => 'nullable|integer|exists:unidades,id',
             'observaciones'=> 'nullable|string',
         ]);
+
+        if (!empty($validated['unidad_id'])) {
+            $tenantId = $request->get('tenant_id');
+            $unidadOk = \Illuminate\Support\Facades\DB::table('unidades')
+                ->where('id', $validated['unidad_id'])
+                ->where('tenant_id', $tenantId)
+                ->exists();
+            if (!$unidadOk) {
+                return response()->json(['message' => 'Unidad no encontrada en este PH.'], 422);
+            }
+        }
 
         $acceso->update($validated);
 

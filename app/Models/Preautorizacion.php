@@ -14,7 +14,7 @@ class Preautorizacion extends Model
     protected $fillable = [
         'tenant_id', 'unidad_id', 'residente_id', 'nombre_visitante',
         'cedula_visitante', 'placa_visitante', 'fecha_desde', 'fecha_hasta',
-        'descripcion', 'qr_token', 'activa',
+        'descripcion', 'qr_token', 'activa', 'estado',
     ];
 
     protected $casts = [

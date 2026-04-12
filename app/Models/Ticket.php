@@ -23,7 +23,6 @@ class Ticket extends Model
     public function categoria()  { return $this->belongsTo(CategoriaTicket::class, 'categoria_id'); }
     /** Aliás 'asignado' para usarlo en eager loading: with(['asignado']) */
     public function asignado()   { return $this->belongsTo(Usuario::class, 'asignado_a'); }
-    public function asignadoA()  { return $this->belongsTo(Usuario::class, 'asignado_a'); }
     public function creadoPor()  { return $this->belongsTo(Usuario::class, 'reportado_por'); }
     public function comentarios(){ return $this->hasMany(TicketComentario::class); }
     public function historial()  { return $this->hasMany(TicketHistorial::class); }
